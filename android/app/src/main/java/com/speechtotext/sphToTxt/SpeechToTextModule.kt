@@ -23,6 +23,10 @@ class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
     RecognitionListener {
 
     private lateinit var speechRecognizer: SpeechRecognizer
+    private var isContinuousMode = false
+    private var selectedLanguageCode: String = "en-US" // default fallback
+
+
 
     init {
         Handler(Looper.getMainLooper()).post {
@@ -37,13 +41,14 @@ class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun startListening(languageCode: String = "en-US") {
+        selectedLanguageCode = languageCode
+
         Handler(Looper.getMainLooper()).post {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             intent.putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-//            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US") // Default language
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageCode)
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
@@ -66,6 +71,17 @@ class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
             }
         }
     }
+
+    @ReactMethod
+    fun setContinuousListeningMode(enabled: Boolean) {
+        isContinuousMode = enabled
+    }
+
+    @ReactMethod
+    fun isContinuousModeEnabled(promise: Promise) {
+        promise.resolve(isContinuousMode)
+    }
+
 
 @ReactMethod
 fun getSupportedLanguages(promise: Promise) {
@@ -123,6 +139,9 @@ fun getSupportedLanguages(promise: Promise) {
 
     override fun onEndOfSpeech() {
         sendEvent("onSpeechEnd", "Speech ended")
+        if (isContinuousMode) {
+            restartListening()
+        }
     }
 
     override fun onError(error: Int) {
@@ -139,12 +158,18 @@ fun getSupportedLanguages(promise: Promise) {
             else -> "Unknown error"
         }
         sendEvent("onSpeechError", message)
+        if (isContinuousMode && error != SpeechRecognizer.ERROR_CLIENT && error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+            restartListening()
+        }
     }
 
     override fun onResults(results: Bundle?) {
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         val result = matches?.get(0) ?: ""
         sendEvent("onSpeechResults", result)
+        if (isContinuousMode) {
+            restartListening()
+        }
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
@@ -154,6 +179,17 @@ fun getSupportedLanguages(promise: Promise) {
     }
 
     override fun onEvent(eventType: Int, params: Bundle?) {}
+
+    private fun restartListening() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguageCode) // or store languageCode
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            speechRecognizer.startListening(intent)
+        }, 500) // Delay can help avoid "busy" errors
+    }
 
     private fun sendEvent(eventName: String, params: String) {
         reactContext

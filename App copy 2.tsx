@@ -160,16 +160,6 @@ export default function App() {
   const [continuousMode, setContinuousMode] = useState(false);
   const isListening = useRef(false);
 
-  const setConListMode = () => {
-    if (!continuousMode) {
-      SpeechToText.setContinuousListeningMode(true);
-      setContinuousMode(true);
-    } else {
-      SpeechToText.setContinuousListeningMode(false);
-      setContinuousMode(false);
-    }
-  };
-
   // 🔒 Ask for mic permission
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -199,16 +189,15 @@ export default function App() {
       DeviceEventEmitter.addListener('onSpeechEnd', () => {
         setStatus('Speech ended');
         isListening.current = false;
-
-        // if (continuousMode) {
-        //   setTimeout(() => {
-        //     SpeechToText.startListening(language);
-        //   }, 700);
-        // }
+        if (continuousMode) {
+          setTimeout(() => {
+            SpeechToText.startListening(language);
+          }, 700);
+        }
       }),
-      DeviceEventEmitter.addListener('onSpeechVolume', rms => {
-        setVolume(parseFloat(rms));
-      }),
+      DeviceEventEmitter.addListener('onSpeechVolume', rms =>
+        setVolume(parseFloat(rms)),
+      ),
       DeviceEventEmitter.addListener('onSpeechResults', text =>
         setTranscript(text),
       ),
@@ -219,12 +208,11 @@ export default function App() {
         }
         setStatus('Error: ' + err);
         isListening.current = false;
-
-        // if (continuousMode) {
-        //   setTimeout(() => {
-        //     SpeechToText.startListening(language);
-        //   }, 1000);
-        // }
+        if (continuousMode) {
+          setTimeout(() => {
+            SpeechToText.startListening(language);
+          }, 1000);
+        }
       }),
     ];
 
@@ -234,13 +222,14 @@ export default function App() {
         SpeechToText.destroyRecognizer?.();
       }
     };
-  }, [language]);
+  }, [language, continuousMode]);
 
   // 🌍 Load available languages
   useEffect(() => {
     if (Platform.OS === 'android') {
       SpeechToText.getSupportedLanguages?.()
         .then((langs: string[]) => {
+          console.log('langs', langs);
           const filtered = langs
             .map(code => {
               const match = locales.find(loc => loc.code === code);
@@ -252,7 +241,7 @@ export default function App() {
                 : undefined;
             })
             .filter((item): item is AvailableLang => !!item);
-
+          console.log('filtered', filtered);
           setAvailableLanguages(filtered);
         })
         .catch((err: any) => console.warn('Failed to get languages:', err));
@@ -272,10 +261,6 @@ export default function App() {
     setStatus('Stopped');
   };
 
-  useEffect(() => {
-    console.log('🎙 Status:', status);
-  }, [status]);
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>🎙 Speech to Text</Text>
@@ -287,13 +272,13 @@ export default function App() {
 
       <View style={{gap: 10, marginBottom: 10}}>
         <Button title="Start Listening" onPress={startSpeech} />
-        {/* <Button title="Stop Listening" onPress={stopSpeech} /> */}
+        <Button title="Stop Listening" onPress={stopSpeech} />
       </View>
 
       <View
         style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20}}>
         <Text style={{marginRight: 10}}>Continuous Mode</Text>
-        <Switch value={continuousMode} onValueChange={setConListMode} />
+        <Switch value={continuousMode} onValueChange={setContinuousMode} />
       </View>
 
       <Text style={styles.transcriptLabel}>Transcript:</Text>
