@@ -1,118 +1,116 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
   View,
+  Text,
+  Button,
+  StyleSheet,
+  DeviceEventEmitter,
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+const { SpeechToText } = NativeModules;
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+export default function App() {
+  const [status, setStatus] = useState("Idle");
+  const [volume, setVolume] = useState(0);
+  const [transcript, setTranscript] = useState("");
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  // 🔒 Ask mic permission on Android
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: 'Microphone Permission',
+          message: 'This app needs access to your microphone to recognize speech.',
+          buttonPositive: 'OK',
+        }
+      ).then((result) => {
+        if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.warn("Microphone permission denied");
+        }
+      });
+    }
+  }, []);
+
+  // 🎧 Listen to native events
+  useEffect(() => {
+    const subscriptions = [
+      DeviceEventEmitter.addListener("onSpeechReady", () => setStatus("Ready to speak")),
+      DeviceEventEmitter.addListener("onSpeechStart", () => setStatus("Listening...")),
+      DeviceEventEmitter.addListener("onSpeechEnd", () => setStatus("Speech ended")),
+      DeviceEventEmitter.addListener("onSpeechVolume", (rmsdB) => setVolume(parseFloat(rmsdB))),
+      DeviceEventEmitter.addListener("onSpeechResults", (text) => setTranscript(text)),
+      DeviceEventEmitter.addListener("onSpeechError", (err) => {
+        console.log("Speech error:", err);
+        if (Platform.OS === 'android') {
+          ToastAndroid.show(err, ToastAndroid.SHORT)
+        }
+        setStatus("Error: " + err);
+      }),
+    ];
+
+    return () => {
+      subscriptions.forEach(sub => sub.remove());
+    };
+  }, []);
+
+  const startSpeech = () => {
+    setTranscript("");
+    SpeechToText.startListening();
+  };
+
+  useEffect(() => {
+    console.log('status',status);
+  }, [status])
+
   return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
+    <View style={styles.container}>
+      <Text style={styles.title}>🎙 Speech to Text</Text>
+      <View style={[styles.micCircle, { transform: [{ scale: 1 + volume / 10 }] }]} />
+      <Text style={styles.status}>{status}</Text>
+      <Button title="Start Listening" onPress={startSpeech} />
+      <Text style={styles.transcriptLabel}>Transcript:</Text>
+      <Text style={styles.transcript}>{transcript || "(Say something...)"}</Text>
     </View>
   );
 }
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-  };
-
-  return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    paddingTop: 80,
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
-  sectionTitle: {
-    fontSize: 24,
+  title: {
+    fontSize: 28,
     fontWeight: '600',
+    marginBottom: 40,
   },
-  sectionDescription: {
-    marginTop: 8,
+  micCircle: {
+    width: 100,
+    height: 100,
+    backgroundColor: '#4A90E2',
+    borderRadius: 50,
+    marginBottom: 20,
+  },
+  status: {
+    fontSize: 16,
+    marginBottom: 30,
+  },
+  transcriptLabel: {
+    fontSize: 16,
+    marginTop: 30,
+    fontWeight: 'bold',
+  },
+  transcript: {
     fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
+    marginTop: 10,
+    paddingHorizontal: 20,
+    textAlign: 'center',
   },
 });
-
-export default App;
