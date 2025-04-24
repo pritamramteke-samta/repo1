@@ -2,15 +2,21 @@ package com.speechtotextapp
 
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.speech.SpeechRecognizer // Only import this
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.Promise
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.app.Activity
+import android.app.Activity.RESULT_OK
+import com.facebook.react.bridge.Arguments
 
 class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext),
@@ -30,33 +36,91 @@ class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun startListening() {
+    fun startListening(languageCode: String = "en-US") {
         Handler(Looper.getMainLooper()).post {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             intent.putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+//            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US") // Default language
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageCode)
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             speechRecognizer.startListening(intent)
         }
     }
 
-    // RecognitionListener Callbacks
+    @ReactMethod
+    fun stopListening() {
+        Handler(Looper.getMainLooper()).post {
+            speechRecognizer.stopListening()
+        }
+    }
 
+    @ReactMethod
+    fun destroyRecognizer() {
+        Handler(Looper.getMainLooper()).post {
+            if (::speechRecognizer.isInitialized) {
+                speechRecognizer.destroy()
+            }
+        }
+    }
+
+@ReactMethod
+fun getSupportedLanguages(promise: Promise) {
+    if (!SpeechRecognizer.isRecognitionAvailable(reactContext)) {
+        promise.reject("NOT_AVAILABLE", "Speech recognition is not available on this device.")
+        return
+    }
+
+    val intent = Intent(RecognizerIntent.ACTION_GET_LANGUAGE_DETAILS)
+    
+    reactContext.sendOrderedBroadcast(intent, null, object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            try {
+                val results = getResultExtras(true)
+                val languages = results.getStringArrayList(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES)
+                
+                if (languages != null && languages.isNotEmpty()) {
+                    // Convert the ArrayList to a WritableArray for React Native
+                    val writableArray = Arguments.createArray()
+                    for (language in languages) {
+                        writableArray.pushString(language)
+                    }
+                    promise.resolve(writableArray)
+                } else {
+                    // Fallback languages as WritableArray
+                    val fallbackLanguages = Arguments.createArray()
+                    listOf("en-US", "es-ES", "fr-FR", "hi-IN", "de-DE", "ja-JP", 
+                          "zh-CN", "ru-RU", "it-IT", "pt-BR").forEach {
+                        fallbackLanguages.pushString(it)
+                    }
+                    promise.resolve(fallbackLanguages)
+                }
+            } catch (e: Exception) {
+                promise.reject("LANGUAGE_FETCH_ERROR", "Failed to fetch supported languages: ${e.message}", e)
+            }
+        }
+    }, null, Activity.RESULT_OK, null, null)
+}
+
+    // RecognitionListener Callbacks
     override fun onReadyForSpeech(params: Bundle?) {
         sendEvent("onSpeechReady", "Ready to speak")
     }
+
     override fun onBeginningOfSpeech() {
         sendEvent("onSpeechStart", "Speech has started")
     }
+
     override fun onRmsChanged(rmsdB: Float) {
         // rmsdB ranges from 0 (quiet) to ~10+ (loud), you can send this to animate waveforms
         sendEvent("onSpeechVolume", rmsdB.toString())
     }
+
     override fun onBufferReceived(buffer: ByteArray?) {}
+
     override fun onEndOfSpeech() {
         sendEvent("onSpeechEnd", "Speech ended")
     }
@@ -97,12 +161,12 @@ class SpeechToTextModule(private val reactContext: ReactApplicationContext) :
             .emit(eventName, params)
     }
 
-     // Add this method to support NativeEventEmitter
+    // Add this method to support NativeEventEmitter
     @ReactMethod
     fun addListener(eventName: String) {
         // Required for RN 0.65+
     }
- 
+
     @ReactMethod
     fun removeListeners(count: Int) {
         // Required for RN 0.65+
